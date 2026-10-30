@@ -4,7 +4,7 @@ name: Watch
 on:
   workflow_run:
     workflows: ["CI"]
-    branches: [main]
+    branches: [feature]
     types: [completed]
   workflow_dispatch: {}
 
