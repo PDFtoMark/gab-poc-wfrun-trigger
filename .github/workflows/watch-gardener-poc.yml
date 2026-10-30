@@ -1,0 +1,71 @@
+name: Watch Gardener POC
+# Structural mirror of Shopify/shopify-app-python .github/workflows/gardener-notify-slack.yml
+# (artifact download by run-id from upstream run + the exact markdown->mrkdwn transform).
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  notify:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download event payload
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: gardener-event
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Reproduce target transform
+        if: steps.download.outcome == 'success'
+        run: |
+          echo "upstream_event=${{ github.event.workflow_run.event }}"
+          echo "upstream_head_branch=${{ github.event.workflow_run.head_branch }}"
+          echo "upstream_head_repo=${{ github.event.workflow_run.head_repository.full_name }}"
+          echo "--- event.json (attacker supplied via upstream artifact) ---"
+          cat event.json
+          ACTION=$(jq -r '.action' event.json)
+          echo "ACTION=$ACTION"
+          NUMBER=$(jq -r '(.issue // .pull_request).number' event.json)
+          echo "NUMBER=$NUMBER"
+          BODY=$(jq -r '(.issue // .pull_request).body // ""' event.json)
+          if [ ${#BODY} -gt 1000 ]; then
+            BODY="${BODY:0:1000}…"
+          fi
+          BODY=$(printf '%s' "$BODY" | perl -0777 -pe '
+            my @u;
+            s{\[([^\]]+)\]\(([^)]+)\)}{push @u, $2; "\x01$#u\x02$1\x03"}ge;
+            my @c;
+            s{^```[^\n]*\n(.*?)\n```$}{push @c, $1; "\x04$#c\x05"}gems;
+            s/^> /\x06/gm;
+            s/^#{1,6}\s+(.+)$/*$1*/gm;
+            s/\*\*(.+?)\*\*/*$1*/g;
+            s/^(\s*)- \[x\]\s+/$1✓ /gm;
+            s/^(\s*)[-*]\s+/$1• /gm;
+            s/&/&amp;/g;
+            s/</&lt;/g;
+            s/>/&gt;/g;
+            s/\x06/> /g;
+            s{\x01(\d+)\x02(.*?)\x03}{"<$u[$1]|$2>"}ge;
+            s{\x04(\d+)\x05}{"```\n$c[$1]\n```"}ge;
+          ')
+          KIND=$(jq -r 'if has("pull_request") then "PR" else "Issue" end' event.json)
+          jq --arg channel "POC" --arg kind "$KIND" --arg body "$BODY" '
+            def escape: gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;");
+            (.issue // .pull_request) as $i
+            | ([$i.labels[]?.name | select(. != "devtools-gardener")] | map("`\(.)`") | join(" ")) as $labels
+            | (if $kind == "PR" then " · \($i.changed_files) files, +\($i.additions)/-\($i.deletions)" + (if $i.draft then " · draft" else "" end) else "" end) as $meta
+            | [ "*<\($i.html_url)|\($kind) #\($i.number)>* — \(($i.title | escape))", "_opened by \($i.user.login)\($meta)_" ]
+              + (if $body != "" then [$body] else [] end)
+              + (if $labels != "" then [$labels] else [] end)
+            | join("\n") as $msg
+            | { channel: $channel, text: "\($kind) #\($i.number): \($i.title)", blocks: [{ type: "section", text: { type: "mrkdwn", text: $msg } }] }
+          ' event.json > payload.json
+          echo "--- rendered Slack mrkdwn (what would be POSTed to chat.postMessage) ---"
+          jq -r '.blocks[0].text.text' payload.json
