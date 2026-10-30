@@ -1,0 +1,30 @@
+# Mirrors the trigger and job guard of cloudflare/computer .github/workflows/release.yml
+name: Watch
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: ${{ (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success') && github.repository_owner == 'PDFtoMark' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Report trigger context
+        run: |
+          {
+            echo "event=$GITHUB_EVENT_NAME"
+            echo "ref=$GITHUB_REF"
+            echo "sha=$GITHUB_SHA"
+            echo "wr_conclusion=${{ github.event.workflow_run.conclusion }}"
+            echo "wr_event=${{ github.event.workflow_run.event }}"
+            echo "wr_head_branch=${{ github.event.workflow_run.head_branch }}"
+            echo "wr_head_repo=${{ github.event.workflow_run.head_repository.full_name }}"
+            echo "wr_head_sha=${{ github.event.workflow_run.head_sha }}"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
