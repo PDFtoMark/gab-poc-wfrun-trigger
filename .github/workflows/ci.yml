@@ -1,0 +1,15 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  ok:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Pass
+        run: echo "ci ok event=$GITHUB_EVENT_NAME head=$GITHUB_HEAD_REF ref=$GITHUB_REF"
